@@ -7,9 +7,10 @@ import streamlit as st
 
 from core import (
     PARAMETERS, PARAMETER_LABELS,
-    load_image_bytes, analyze_image,
+    load_image_bytes, load_image_file, analyze_image,
     build_csv_rows, aggregate_scores,
 )
+from pdf_report import generate_pdf
 
 # ─── Page config ─────────────────────────────────────────────────────────────────
 
@@ -90,11 +91,11 @@ with col_l:
     batch_name = st.text_input("Batch Name", placeholder="e.g. DS-Batch-12")
     lecture_module = st.text_input("Lecture Module", placeholder="e.g. Module-3-SQL-Joins")
     api_key = st.text_input(
-        "Google AI Studio API Key",
+        "Groq API Key",
         type="password",
-        placeholder="AIza... (or set GOOGLE_API_KEY env var)",
+        placeholder="gsk_... (or set GROQ_API_KEY env var)",
     )
-    st.caption("Free key from aistudio.google.com — never stored.")
+    st.caption("Free key from console.groq.com — never stored.")
 
 with col_r:
     st.subheader("Upload Screenshots")
@@ -130,10 +131,13 @@ if not ready and not analyze_btn:
 # ─── Analysis ────────────────────────────────────────────────────────────────────
 
 if analyze_btn and ready:
+    st.session_state.pop("report", None)  # clear previous report on new analysis
+
+if analyze_btn and ready:
     import os
-    key = api_key or os.environ.get("GOOGLE_API_KEY", "")
+    key = api_key or os.environ.get("GROQ_API_KEY", "")
     if not key:
-        st.error("No API key provided. Enter it above or set the GOOGLE_API_KEY environment variable.")
+        st.error("No API key provided. Enter it above or set the GROQ_API_KEY environment variable.")
         st.stop()
 
     results = []
@@ -145,8 +149,8 @@ if analyze_btn and ready:
         status_area.markdown(f"Analyzing **{uploaded_file.name}** ({i+1}/{len(uploaded_files)})…")
         try:
             file_bytes = uploaded_file.read()
-            pil_image  = load_image_bytes(file_bytes)
-            result = analyze_image(key, pil_image)
+            image_data, media_type = load_image_bytes(file_bytes, uploaded_file.name)
+            result = analyze_image(key, image_data, media_type)
             result["screenshot"]  = uploaded_file.name
             result["analyzed_at"] = datetime.now().isoformat()
             results.append(result)
@@ -161,6 +165,19 @@ if analyze_btn and ready:
     if not results:
         st.error("Analysis failed for all screenshots.")
         st.stop()
+
+    # Persist results so downloading a file doesn't reset the page
+    st.session_state["report"] = {
+        "results":  results,
+        "batch":    batch_name,
+        "module":   lecture_module,
+    }
+
+# Show report if results exist (survives download button reruns)
+if "report" in st.session_state:
+    results     = st.session_state["report"]["results"]
+    batch_name  = st.session_state["report"]["batch"]
+    lecture_module = st.session_state["report"]["module"]
 
     st.success(f"Done! Analyzed {len(results)} screenshot(s).")
     st.divider()
@@ -274,23 +291,37 @@ if analyze_btn and ready:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base_name = f"{slug}_{timestamp}"
 
-    dl_col1, dl_col2 = st.columns(2)
+    dl_col1, dl_col2, dl_col3 = st.columns(3)
 
+    # PDF
+    try:
+        pdf_bytes = generate_pdf(batch_name, lecture_module, results)
+        dl_col1.download_button(
+            label="Download PDF Report",
+            data=pdf_bytes,
+            file_name=f"{base_name}.pdf",
+            mime="application/pdf",
+        )
+    except Exception as e:
+        dl_col1.warning(f"PDF error: {e}")
+
+    # CSV
     csv_bytes = build_csv_bytes(batch_name, lecture_module, results)
-    dl_col1.download_button(
+    dl_col2.download_button(
         label="Download CSV",
         data=csv_bytes,
         file_name=f"{base_name}.csv",
         mime="text/csv",
     )
 
+    # JSON
     json_payload = json.dumps({
         "batch_name":     batch_name,
         "lecture_module": lecture_module,
         "analyzed_at":    timestamp,
         "results":        results,
     }, indent=2, ensure_ascii=False).encode("utf-8")
-    dl_col2.download_button(
+    dl_col3.download_button(
         label="Download JSON",
         data=json_payload,
         file_name=f"{base_name}.json",

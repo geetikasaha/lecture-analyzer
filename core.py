@@ -2,12 +2,13 @@
 Shared analysis logic — used by both the CLI (analyze.py) and the Streamlit app (app.py).
 """
 
+import base64
 import io
 import json
 import re
 from pathlib import Path
 
-import google.generativeai as genai
+from groq import Groq
 from PIL import Image
 
 # ─── Parameter registry ─────────────────────────────────────────────────────────
@@ -106,28 +107,49 @@ Scoring rubrics:
 
 # ─── Image helpers ───────────────────────────────────────────────────────────────
 
-def load_image_file(image_path: Path) -> Image.Image:
-    return Image.open(image_path)
+def load_image_file(image_path: Path) -> tuple:
+    """Return (base64_string, media_type) for an image file."""
+    suffix = image_path.suffix.lower()
+    media_type = "image/jpeg" if suffix in (".jpg", ".jpeg") else "image/png"
+    with open(image_path, "rb") as f:
+        data = base64.standard_b64encode(f.read()).decode("utf-8")
+    return data, media_type
 
 
-def load_image_bytes(file_bytes: bytes) -> Image.Image:
-    return Image.open(io.BytesIO(file_bytes))
+def load_image_bytes(file_bytes: bytes, filename: str = "image.png") -> tuple:
+    """Return (base64_string, media_type) for raw bytes."""
+    suffix = Path(filename).suffix.lower()
+    media_type = "image/jpeg" if suffix in (".jpg", ".jpeg") else "image/png"
+    data = base64.standard_b64encode(file_bytes).decode("utf-8")
+    return data, media_type
 
 
 # ─── Analysis ────────────────────────────────────────────────────────────────────
 
-def analyze_image(api_key: str, pil_image: Image.Image) -> dict:
-    """Send an image to Gemini and return the structured JSON result."""
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(
-        model_name="gemini-2.0-flash",
-        system_instruction=SYSTEM_PROMPT,
+def analyze_image(api_key: str, image_data: str, media_type: str) -> dict:
+    """Send an image to Groq (Llama Vision) and return the structured JSON result."""
+    client = Groq(api_key=api_key)
+    response = client.chat.completions.create(
+        model="meta-llama/llama-4-scout-17b-16e-instruct",
+        max_tokens=4096,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{media_type};base64,{image_data}"},
+                    },
+                    {
+                        "type": "text",
+                        "text": "Analyze this lecture screenshot and return the JSON evaluation.",
+                    },
+                ],
+            },
+        ],
     )
-    response = model.generate_content([
-        "Analyze this lecture screenshot and return the JSON evaluation.",
-        pil_image,
-    ])
-    raw = response.text.strip()
+    raw = response.choices[0].message.content.strip()
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
     return json.loads(raw)
