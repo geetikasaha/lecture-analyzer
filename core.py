@@ -168,7 +168,7 @@ def build_csv_rows(batch: str, module: str, results: list) -> list:
             "analyzed_at":    r["analyzed_at"],
         }
         for param in PARAMETERS:
-            data = r.get("scores", {}).get(param, {})
+            data = r.get("scores", {}).get(param) or {}
             row[f"{param}_score"]       = data.get("score", "")
             row[f"{param}_observation"] = data.get("observation", "")
             row[f"{param}_improvement"] = data.get("improvement", "")
