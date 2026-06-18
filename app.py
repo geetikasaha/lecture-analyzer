@@ -6,7 +6,7 @@ from datetime import datetime
 import streamlit as st
 
 from core import (
-    PARAMETERS, MAJOR_PARAMETERS, MINOR_PARAMETERS, PARAMETER_LABELS,
+    PARAMETERS, MAJOR_PARAMETERS, MINOR_PARAMETERS, PARAMETER_LABELS, PARAMETER_DESCRIPTIONS,
     load_image_bytes, load_image_file, analyze_image,
     build_csv_rows, aggregate_scores,
 )
@@ -204,16 +204,17 @@ if "report" in st.session_state:
         for col, param in zip(cols, params):
             avg = averages.get(param)
             label = PARAMETER_LABELS[param]
-            short = label.replace("Annotation / Whiteboard Activity", "Annotation").replace("Content Type on Screen", "Live Coding")
+            short = label.replace("Content Type on Screen", "Live Coding")
+            description = PARAMETER_DESCRIPTIONS.get(param, label)
             if avg is not None:
-                col.metric(short, f"{avg:.1f}", help=label)
+                col.metric(short, f"{avg:.1f}", help=description)
                 col.markdown(
                     f'<div style="height:6px;border-radius:3px;background:{score_color(avg)};'
                     f'width:{int(avg/5*100)}%"></div>',
                     unsafe_allow_html=True,
                 )
             else:
-                col.metric(short, "N/A", help=label)
+                col.metric(short, "N/A", help=description)
         st.markdown("")
 
     st.markdown("#### 🔴 Major Checks")
