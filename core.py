@@ -182,8 +182,14 @@ def aggregate_scores(results: list) -> dict:
     """Return {param: avg_score} across all results, skipping nulls."""
     param_scores = {p: [] for p in PARAMETERS}
     for r in results:
+        scores_data = r.get("scores", {})
+        if not isinstance(scores_data, dict):
+            continue
         for param in PARAMETERS:
-            score = r.get("scores", {}).get(param, {}).get("score")
-            if score is not None:
+            param_data = scores_data.get(param, {})
+            if not isinstance(param_data, dict):
+                continue
+            score = param_data.get("score")
+            if isinstance(score, (int, float)):
                 param_scores[param].append(score)
     return {p: (sum(v) / len(v) if v else None) for p, v in param_scores.items()}
